@@ -73,7 +73,7 @@ test("Use path parameters", function (t, done) {
   testRequest(
     app,
     "GET",
-    "/hello/World",
+    "/hello/World?foo=bar",
     function (res, data) {
       assert.strictEqual(res.statusCode, 200);
       assert.strictEqual(data, "Hello World!");
@@ -138,19 +138,15 @@ test("Define a route with two middleware", function (t, done) {
   );
 });
 
-test("Handle a middleware calling next('route')", function (t, done) {
+test("Handle query parameters", function (t, done) {
   const app = express();
-  app.get("/", function (req, res, next) {
-    req.data = "Hello";
-    next("route");
-  });
   app.get("/", function (req, res) {
-    res.end(req.data + " World!");
+    res.end("Hello " + req.query.Hello + "!");
   });
   testRequest(
     app,
     "GET",
-    "/",
+    "/?Hello=World",
     function (res, data) {
       assert.strictEqual(res.statusCode, 200);
       assert.strictEqual(data, "Hello World!");
@@ -257,6 +253,25 @@ test("Skip over the remaining routes on error", function (t, done) {
     function (res, data) {
       assert.strictEqual(res.statusCode, 500);
       assert.strictEqual(data, "Oops!");
+    },
+    done,
+  );
+});
+
+test("Handle a partial response sent", function (t, done) {
+  const app = express();
+  app.get("/", function (req, res) {
+    res.writeHead(200);
+    res.end();
+    throw new Error("Oops!");
+  });
+  testRequest(
+    app,
+    "GET",
+    "/",
+    function (res, data) {
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(data, "");
     },
     done,
   );

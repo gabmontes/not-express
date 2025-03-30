@@ -4,11 +4,9 @@
 
 Express is often described as a fast, unopinionated, minimalist web framework for Node.js. However, in practice, it is a full-featured framework with many functionalities that may not be necessary for simple web applications.
 
-The goal of `not-express` is to provide a minimal set of useful features while remaining as compatible as possible with the Express API. It aims to achieve this with the least amount of code, offering a lightweight alternative for learning and experimentation.
+The goal of `not-express` is to support a minimal set of features while remaining as compatible as possible with the Express API, with the least amount of code. It could be thought as a strict sub-set of Express: You can start playing with `not-express` and, if there is a feature of Express you need, just swap it for `express` and everything should keep working.
 
-Working on `not-express` has been a fun and educational experience that deepened my understanding of how Express works. Even after using it for more than 10 years, there always seems to be something new to learn!
-
-I hope you find `not-express` both useful and enjoyable, whether you use it in your projects or as a learning tool.
+Working on `not-express` has been a fun and educational experience that deepened my understanding of how Connect and Express work. Even after using both for more than 10 years, there always seems to be something new to learn. I hope you find `not-express` both useful and enjoyable, whether you use it in your projects or as a learning tool.
 
 ## Highlights
 

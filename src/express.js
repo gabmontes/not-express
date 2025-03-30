@@ -1,55 +1,44 @@
 /*
-  I've been exploring ESM modules lately, and specifically when creating Node.js
-  packages, I found it is still lacking. While creating a package and using it
-  in an ESM environment works fine, using an ESM package in a CJS environment is
-  messy. The options are to drop support for CJS completely (as some package
-  authors are doing), to transpile and export both ESM and CJS files with the
-  package, or to keep using CJS to minimize complexity and maximize 
-  compatibility. I chose the last approach. So, to start any file in the usual 
-  CJS fashion, let's set strict mode on!
+  Creating an ESM package and using it in an ESM environment works seamlessly, 
+  but using it in a CJS environment introduces complexity. The possible 
+  solutions are:
+  
+  - Dropping support for CJS entirely, as some package authors are doing,
+  - Transpiling and exporting both ESM and CJS files, which adds extra scripts 
+    and tools to the package setup, or
+  - Continuing to use CJS.
+
+  The last option minimizes complexity and maximizes compatibility. Therefore, 
+  this file uses CJS and starts in strict mode for consistency and best 
+  practices.
 */
 
 "use strict";
 
 /*
   A nice feature of this implementation is that it has no dependencies other 
-  than the `http` module that comes built into Node.js. This is another way to 
-  keep the codebase lightweight and un-bloated. Fewer dependencies, fewer 
-  problems.
+  than the `http` module built into Node.js. This keeps the codebase lightweight 
+  and free from unnecessary bloat.
 */
 
 const http = require("http");
 
 /*
-  The top-level export is a function that creates an application object. This 
-  application object provides the following key functionalities:
+  Before starting with the actual code, let's define some types that will help
+  us later. These types are the usual suspects in any Connect/Express setup and 
+  are mostly self-explanatory.
 
-  - Defining routes and specifying the middleware to handle requests,
-  - Attaching middleware to specific paths, and
-  - Creating an HTTP server and starting it to listen for incoming requests.
-
-  Express also offers additional features at the top level, such as commonly 
-  used middleware and the Route factory. At the application level, it provides 
-  may methods to deal with template engines, complex scenarios, etc. However, we 
-  will focus on the minimum functionality required to create a simple HTTP API:
-
-  - Defining GET routes,
-  - Attaching middleware to all routes (e.g., for handling CORS requests),
-  - Defining error handlers, and
-  - Creating the server and starting it to listen for requests.
-
-  Note: Support for Promise-returning middleware, introduced in later versions 
-  of Express, is not included in the list.
-
-  The first step is to create the function that returns the application object 
-  we will interact with. However, before that, we will define some helper 
-  functions and middleware that will assist us along the way. These are standard 
-  Connect-like middleware and are mostly self-explanatory.
+  Note: Connect/Express defines error handlers as functions receiving 4 
+  parameters. While checking the number of parameters a function receives 
+  may seem hacky, this was not my decision.
 */
 
 /**
- * @callback NextFunction
- * @param {Error|"route"} [err] - The error thrown or the "route" string
+ * @callback ErrorHandler
+ * @param {Error} err - The error
+ * @param {http.IncomingMessage} req - The request
+ * @param {http.ServerResponse} res - The response
+ * @param {NextFunction} next - To call the next error handler for the route
  * @returns {void}
  *
  * @callback Middleware
@@ -58,60 +47,32 @@ const http = require("http");
  * @param {function} next - To call the next middleware for the route
  * @returns {void}
  *
- * @callback ErrorHandler
- * @param {Error} err - The error
- * @param {http.IncomingMessage} req - The request
- * @param {http.ServerResponse} res - The response
- * @param {NextFunction} next - To call the next middleware for the route
+ * @callback NextFunction
+ * @param {Error|null} [err] - The error
  * @returns {void}
  */
 
-/** @type {Middleware} */
-function callNextRoute(req, res, next) {
-  next("route");
-}
-
-/** @type {Middleware} */
-function notFoundError(req, res) {
-  res.writeHead(404);
-  res.end("Not Found");
-}
-
-/** @type {ErrorHandler} */
-// eslint-disable-next-line no-unused-vars
-function internalServerError(err, req, res, next) {
-  res.writeHead(500);
-  res.end("Internal Server Error");
-}
-
 /*
-  Note that the default handlers provided by Express to manage 404 and 500 
-  errors typically return an HTML page with details about the errors or log the 
-  error messages to the console. For simplicity, we are not doing so here, even 
-  though this represents a departure from the Express API.
-
-  It is also worth mentioning that `internalServerError` receives 4 parameters, 
-  even though `next` is not used. This allows it to be properly identified as an 
-  error handler. While checking the number of parameters a function receives may 
-  seem hacky, this is exactly how Express identifies error handlers. So, no 
-  complaints, please. This is not my fault.
-
-  Now, let’s move on to the fun part by defining a tiny helper. Why? Because we 
-  want to support path parameters. To keep the code as simple as possible, we 
-  will not support named path parameters. Instead, we will allow only static 
-  paths (strings) and path patterns (regular expressions with capture groups), 
-  just like Express does:
+  Now, let’s define a tiny helper. In order to support path parameters but to 
+  also keep the logic as simple as possible, there will be no support for named 
+  path parameters. That avoids the need to do complex parsing of the request 
+  URL. Node 23.8 comes with URLPattern built in, but let's skip that feature for 
+  now as it is still experimental.
+  
+  To match the Express API, strings can be used to define static paths, and 
+  regular expressions with capture groups can be used to define dynamic routes:
 
   app.get("/path") // This is a static path that will fully match or not.
   app.get("/id/(\\d+)") // This is equivalent to `/id/:number(\\d+)`.
+  app.get(/\/id\/(\d+)/) // Regular expressions can be used too.
 
-  The trick here is to identify these two scenarios and wrap the given route 
-  with anchors (`^` and `$`) to enforce exact matches. This function will be 
-  very helpful later when defining `app.get()`.
-
-  For simplicity, let’s assume that paths are never defined with such anchors, 
-  as is the common practice when using Express. If you want to break your code 
-  by adding anchors to your own routes, go ahead. You are free to do so.
+  If a string is provided, it will be transformed into a regular expression. 
+  Then the regular expression will be used as is to match the request URL. In 
+  either case, anchors (`^` and `$`) are added to enforce exact matches. If 
+  anchors are provided manually, errors may occur. Avoid doing that.
+  
+  This function will be needed later when defining `app.get()`, but it serves as 
+  a good starting point for discussing supported features and limitations.
 */
 
 /**
@@ -123,221 +84,82 @@ const pathToRegExp = (path) =>
     ? new RegExp(`^${path.source}$`, path.flags)
     : new RegExp(`^${path}$`);
 
-/* 
-  And just because we were talking about routes, let's define what a route is,
-  even though we will not use this structure for now. In fact, let's do it now
-  because the next function will receive a list of routes as its last parameter.
-
-  Each route may have an associated HTTP method. If not, the route is valid for 
-  all methods. Additionally, each route needs to have a list of middleware, 
-  which can include both regular middleware and error handlers, as well as a 
-  regular expression to validate whether the route matches the incoming request, 
-  as discussed above.
-*/
-/**
- * @typedef {Object} Route
- * @property {string} [method] - The HTTP method
- * @property {(Middleware|ErrorHandler)[]} middleware - The list of middleware
- * @property {RegExp} regexp - The regular expression to match the route's path
- */
-
 /*
-  At the heart of Connect and Express is the management of route middleware. 
-  Each route may have one or more middleware functions. These functions can 
-  handle the request or pass control to the next middleware by calling `next`. 
-  If `next` is called with an error, the error-handling middleware is invoked 
-  instead, following the same pattern:
+  Another little helper to define is an error handler that will be called when 
+  no routes match the current request. It will allow sending a response to the
+  caller, no matter what.
 
-  middleware1 --next()--> middleware2 --next()--> middleware3
-  middleware1 --next(err)--> errorHandler1
-
-  A special case occurs when `next` is called with the string "route". In this 
-  case, none of the remaining middleware for the current route is executed. 
-  Instead, control is transferred to the next route that matches the request.
-
-  According to the Express documentation:
-
-  | next('route') will work only in middleware functions that were loaded by 
-  | using the app.METHOD() function.
-
-  This exact behavior may not be fully supported here. For simplicity, both 
-  regular request-handling middleware and error-handling middleware are called 
-  using the same logic.
-
-  The `callMiddleware` function will receive the `req` and `res` objects and 
-  the list of middleware for the current route. It will then pick the first 
-  middleware in the list and call it. The `next` function is created dynamically 
-  to manage what happens next.
-
-  The other two parameters `err` and `nextRoutes` will make sense in a moment. 
-  Let's skip over those now.
+  Note: If a middleware sends the response headers and throws, any error
+  handler that tries to send the headers again will also fail. This function, as 
+  the last one that will handle the request if everything else fails, has to 
+  consider that scenario. Be careful when writing middleware and avoid those
+  traps.
 */
 
 /**
  * @param {Error|null} err - The error
  * @param {http.IncomingMessage} req - The request
  * @param {http.ServerResponse} res - The response
- * @param {(Middleware|ErrorHandler)[]} middleware - The list of middlewares
- * @param {Route[]} nextRoutes - The list of unexplored routes
+ * @returns {void}
  */
-function callMiddleware(err, req, res, middleware, nextRoutes) {
-  /*
-    The `next` function is key as it allows transferring control flow between
-    middleware, routes, and error handlers. Its logic, however, is quite simple.
-
-    If it receives no error (the most common or "happy-path" scenario), it
-    continues the chain of recursive calls by invoking `callMiddleware` with
-    the remaining middleware (excluding the one that just called `next()`).
-
-    What happens if you call `next(false)`? Don't try that at home!
-
-    If there is an error, there are two possible scenarios:
-
-    1. If the error is "route", control is passed to the list of middleware
-       defined for the next matching route. This requires a recursive call to
-       find the next route and start processing it from the beginning.
-
-    2. If the error is an actual error object, it must be handled. Control is
-       passed to the next route, signaling that an error is being handled and
-       not just a normal request.
-
-    In both cases, we need to know the list of unexplored routes that have not
-    yet been tested against the request. This is why the `nextRoutes` parameter
-    is passed to `callMiddleware`. Makes sense now?
-
-    On a side note, the code for this function could be simplified further, but
-    doing so might make it harder to read and reason about. A bit of redundancy
-    seems like a good trade-off in this case.
-
-    It is worth noting that this behavior matches Express in the happy-path and
-    basic error-handling scenarios. However, it may not fully replicate Express
-    in more complex cases, such as calling `next("route")` within an error
-    handler or when an error handler is defined inside the middleware list for
-    a specific route. These scenarios have not been tested!
-*/
-
-  /**
-   * @type {NextFunction}
-   */
-  function next(err) {
-    if (!err) {
-      callMiddleware(null, req, res, middleware.slice(1), nextRoutes);
-    } else if (err === "route") {
-      findRouteAndCallMiddleware(null, req, res, nextRoutes);
-    } else {
-      findRouteAndCallMiddleware(err, req, res, nextRoutes);
-    }
-  }
-
-  /*
-    There are some scenarios that need to be considered before calling the 
-    middleware function at the head of the list. Let's analyze those!
-
-    Since this function is designed to be called recursively, it is possible 
-    that the middleware list runs out of items. In that case, control should be 
-    passed to the next route with `next("route")`.
-
-    Remember, the same logic is used for both normal middleware functions and 
-    error handlers. Therefore, it is important to determine which path we are 
-    taking. This is done using the `err` parameter. If we are handling an error, 
-    `err` will be truthy, and we should only call error handlers. If the current 
-    function is not an error handler, we should skip it by calling `next()`. If 
-    it is an error handler, we should call it with `fn(err, req, res, next)`.
-
-    In any other case, where there are no errors, and the function is a standard 
-    middleware, simply calling `fn(req, res, next)` is sufficient.
-
-    Since the function is provided by the user, it may fail. To handle this, 
-    everything is wrapped in a try/catch block. If an error is thrown, we should 
-    initiate error handling by calling `next(err)`.
-
-    Note that errors thrown asynchronously will not be captured and will most 
-    likely prevent any response from being sent to the client. This behavior is 
-    consistent with [older versions of] Express, so don't feel bad about it. 
-    Capturing errors thrown asynchronously is possible but complex. To keep the 
-    code simple, be responsible and write your middleware properly!
-*/
-
-  try {
-    const fn = middleware[0];
-    if (!fn) {
-      next("route");
-    } else if (err && fn.length !== 4) {
-      next(err);
-    } else if (err) {
-      /** @type {ErrorHandler} */ (fn)(err, req, res, next);
-    } else {
-      /** @type {Middleware} */ (fn)(req, res, next);
-    }
-  } catch (err) {
-    next(err);
+function finalHandler(err, req, res) {
+  if (res.headersSent) {
+    // Just terminate the response
+    res.end();
+  } else if (err) {
+    // An error was thrown but no error handlers captured it or threw errors too
+    res.writeHead(500);
+    res.end("Internal Server Error");
+  } else {
+    // No defined routes matched the incoming request
+    res.writeHead(404);
+    res.end("Not Found");
   }
 }
 
 /*
-  Now that we know how to recursively walk through a list of middleware defined
-  for a specific route, we need to go a bit further and explain how to find a
-  route that matches the request in the first place.
+  Note: Connect/Express uses to manage 404 and 500 errors by responding with an 
+  HTML page with details about the errors. For simplicity, we are not doing 
+  that, even though this represents a departure from the Express API behavior.
 
-  To do so, the `matchRoute` function analyzes the request and a route to find 
-  a match. It is implemented as a higher-order function to allow it to be easily 
-  plugged into an `[].filter()` call later. The logic is straightforward: it 
-  discards routes that do not match the request method and routes that do not 
-  match the defined regular expression.
+  At the heart of Connect/Express is the management of routes and middleware. 
+  Each route may be handled by one or more middleware functions. These functions 
+  can handle the request and send a response themselves or pass control to the 
+  next middleware by calling `next`. If `next` is called with an error, the 
+  error-handling middleware is invoked instead:
 
-  Note that if a route does not specify a method, it applies to all methods. If 
-  a match is found, the capture groups will contain the path parameters. These 
-  parameters are immediately assigned to the `req` object. While a purist might 
-  argue that introducing side effects into a `filter()` call is bad practice, 
-  avoiding this would require re-executing the regular expression match outside 
-  the loop to extract the parameters. This approach avoids that redundancy.
+  middleware1 --next()--> middleware2 --next()--> middleware3
+  middleware1 --next(err)--> errorHandler1
 
-  Assigning the array of path parameters to the `params` property of `req` also
-  aligns with how Express handles routes defined with regular expressions, as we 
-  do here.
+  To support that route-to-middleware relation, let's define a `Route` 
+  structure.
 */
 
 /**
- * @param {http.IncomingMessage} req - The request
- * @returns A function that tells whether the route matches the request
+ * @typedef {Object} Route
+ * @property {string} [method] - The HTTP method - will match any if not defined
+ * @property {Middleware|ErrorHandler} middleware - The list of middleware
+ * @property {RegExp} regexp - The regular expression to match the route's path
  */
-const matchRoute = (req) =>
-  function (/** @type {Route} */ route) {
-    if (route.method && req.method !== route.method) {
-      return false;
-    }
-
-    const match = req.url?.match(route.regexp);
-    if (!match) {
-      return false;
-    }
-
-    req["params"] = match.slice(1);
-    return true;
-  };
 
 /*
-  And now we are reaching our last standalone helper, which will be in charge 
-  of finding a route that matches the incoming request and starting the process 
-  of calling all the middleware defined for that route.
+  Once the application routes are defined by associating the paths to middleware
+  functions, it is time to implement the logic that will do the pattern 
+  matching and sequence the middleware calls; The `callMiddleware` function.
 
-  As explained above, `callMiddleware` will call each middleware, handle errors, 
-  and return control back here if `next("route")` is called. When this happens, 
-  it will continue processing the remaining routes that were defined after the 
-  matching one.
+  The function will resolve the problem recursively. If a route matches and 
+  the middleware handles the request, the logic stops there. If not, the 
+  middleware returns the control to `callMiddleware` by calling `next` and it 
+  will continue the recursion with the remaining routes until no more routes are 
+  available.
 
-  It is worth mentioning that there is no need to handle the case where no route 
-  matches the request because of the way the routes are defined. As we will see 
-  later in `handleRequest`, all requests will be processed through all the 
-  user-defined routes and two default routes to handle the "route not found" 
-  and "something went wrong" cases. These two routes match any request, are 
-  always at the end, and are designed not to fail (TM)!
-
-  Disclaimer: The default routes could fail, yes. For instance, if a middleware 
-  sends the response headers, then fails, and the default error handler kicks 
-  in and tries to send a status code 500, chaos would ensue. Don't do that. Be 
-  careful when writing middleware. No safeguards will be added to the default 
-  middleware "for simplicity." ;)
+  As the routes are a flat list of route-to-middleware pairs, the logic of this 
+  function is much simpler than in v3 of `not-express`, where each route 
+  contained a list of middleware. In that case, two recursion loops were needed.
+  As a downside, having such a simple routing structure does not allow 
+  supporting calls like `next('route')`. There may be a way to support that with
+  not much more code but since I needed to use that, I assume it is a feature we
+  can simply skip.
 */
 
 /**
@@ -346,47 +168,131 @@ const matchRoute = (req) =>
  * @param {http.ServerResponse} res - The response
  * @param {Route[]} routes - The list of unexplored routes
  */
-function findRouteAndCallMiddleware(err, req, res, routes) {
-  const matchingRoute = /** @type {Route} */ (routes.find(matchRoute(req)));
-  const nextRoutes = routes.slice(routes.indexOf(matchingRoute) + 1);
-  callMiddleware(err, req, res, matchingRoute.middleware, nextRoutes);
+function callMiddleware(err, req, res, routes) {
+  /*
+    As this will be recursively called, if in this iteration we run out of 
+    routes, there is nothing else we can do but to call the final handler to 
+    send the caller a response.
+  */
+
+  if (!routes.length) {
+    finalHandler(err, req, res);
+    return;
+  }
+
+  /*
+    But if we are lucky, we should have routes to try to process the request 
+    through. In this case, the first step is to define the `next()` function. 
+    This function is created dynamically during each iteration.
+
+    Its logic is quite simple. It only needs to initiate the next "loop" with 
+    the routes not yet explored and keep proper track of the errors that were 
+    previously thrown, if any.
+
+    Note: This behavior matches Express in the happy-path and basic 
+    error-handling scenarios. However, it does not support more complex cases 
+    such as calling `next("route")`. 
+  */
+
+  /**
+   * @type {NextFunction}
+   */
+  function next(err) {
+    callMiddleware(err || null, req, res, routes.slice(1));
+  }
+
+  /*
+    And to move forward with some additional checks, let's extract the 
+    properties of the first route we are going to try with.
+  */
+
+  const { method, middleware, regexp } = routes[0];
+
+  /*
+    The first check is to verify the route method matches the request method. If 
+    there is no match, the next route should be tried. In this check, if a route 
+    does not specify a method, it is understood that it applies to all methods.
+  */
+
+  if (method && req.method !== method) {
+    next(err);
+    return;
+  }
+
+  /*
+    If the method matches, then the request URL must be parsed and matched 
+    against the route pattern. If a match is found, the capture groups will 
+    contain the path parameters. These parameters are immediately assigned to 
+    the `req` object. This also aligns with how Express handles routes defined 
+    with regular expressions.
+
+    Note: Parsing of the URL is done using a dummy "base". This allows using the 
+    built-in URL parser, which is secure and performant, and avoids the need to 
+    code a parser here or use an external package for that purpose.
+
+    Of course, if there is no match, the process restarts with the next route.
+
+    Finally, and before calling the middleware to handle the request, we must
+    parse the query parameters. These are converted to an object and assigned to 
+    the `req` object too, matching the Express API.
+  */
+
+  const base = "http://localhost"; // Dummy base to allow URL to parse req.url
+  const url = /** @type {string} */ (req.url); // req.url is always a string
+  const { pathname, searchParams } = new URL(url, base);
+  const match = pathname?.match(regexp);
+  if (!match) {
+    next(err);
+    return;
+  }
+
+  req["params"] = match.slice(1);
+  req["query"] = Object.fromEntries(searchParams.entries());
+
+  /*
+    If the route method and pattern match the request, then it is time to call
+    the middleware.
+
+    If we are handling an error, we should only call error handlers. If there 
+    are no errors, and the function is a standard middleware, we should simply 
+    call `fn(req, res, next)`. In any other case, we have a mismatch type so we
+    just skip to the next middleware.
+
+    Since the middleware is provided by the user, it may fail. It will fail! So
+    everything must be wrapped in a try/catch block. When an error is thrown, we
+    can initiate the standard error handling mechanism by calling `next(err)`.
+
+    Note: The errors thrown asynchronously will not be captured and will most 
+    likely prevent any response from being sent to the client. This behavior is 
+    consistent with [older versions of] Express, so don't feel bad about it. 
+    Capturing errors thrown asynchronously is possible but complex. Again, be 
+    responsible and write your middleware properly so I can keep this code 
+    simple!
+  */
+
+  try {
+    if (err && middleware.length === 4) {
+      /** @type {ErrorHandler} */ (middleware)(err, req, res, next);
+    } else if (!err && middleware.length < 4) {
+      /** @type {Middleware} */ (middleware)(req, res, next);
+    } else {
+      next(err);
+    }
+  } catch (err) {
+    next(err);
+  }
 }
 
 /*
-  Finally! All the helper functions and most of the inner functionality of the 
-  library have been defined, explained, and exposed. It is time to mix it all 
-  together and create an Express-like application.
+  The top-level export is a function that creates an application object. This 
+  application object provides the following key functionalities to the user:
 
-  The function is very simple, matching the small set of features this library 
-  supports.
+  - Defining routes and specifying the middleware to handle requests,
+  - Attaching middleware to specific paths, and
+  - Creating an HTTP server and starting it to listen for incoming requests.
 
-  We start by defining two catch-all/default routes: one to respond with a 404 
-  if no route matches, and another to respond with a 500 in case of an error. 
-  These `defaultRoutes` are appended to the list of routes on each request. This 
-  is done dynamically because the list of routes is defined by the `get` and 
-  `use` functions and stored in the `allRoutes` array.
-
-  These two functions are slightly more restrictive than their Express 
-  counterparts:
-
-  - `get` accepts a single path and a list of middleware. The path can be a 
-    string or a regular expression. Arrays of paths are not supported.
-  - `use` does not accept a path and defaults to "/". It also only accepts a 
-    single middleware function.
-
-  These restrictions align with the most common use cases. Adding more 
-  functionality to support edge or rarely used cases would introduce unnecessary 
-  complexity.
-
-  After defining these functions to register routes, we define the main function 
-  that handles requests: `handleRequest`. This function finds a matching route 
-  and initiates the middleware chain. It also appends the default routes so 
-  `findRouteAndCallMiddleware` never (*) fails.
-
-  (*) This statement may not be 100% true.
-
-  The last function is `listen`. As in Express, it creates an HTTP server and 
-  starts listening on the specified port.
+  Express also offers additional features at the top level, such as commonly 
+  used middleware and the Route factory. None of that is supported.
 */
 
 /**
@@ -405,20 +311,32 @@ function findRouteAndCallMiddleware(err, req, res, routes) {
  * @returns {Object} A not-express application object
  */
 function createApplication() {
-  const notFoundRoute = {
-    middleware: [notFoundError],
-    regexp: /^\//,
-  };
-  const internalServerErrorRoute = {
-    middleware: [internalServerError],
-    regexp: /^\//,
-  };
-  const defaultRoutes = [notFoundRoute, internalServerErrorRoute];
   const allRoutes = [];
+
+  /*
+    The two main functions exposed, `get()` and `use()`, mostly match their 
+    Express counterparts but are slightly more restrictive:
+
+    - `get` accepts a single path and a list of middleware. The path can be a 
+      string or a regular expression. Arrays of paths are not supported.
+    - `use` does not accept a path and defaults to "/".
+
+    These restrictions align with the most common use cases. Adding more 
+    functionality to support edgy or rarely used cases would have introduced 
+    unnecessary complexity.
+
+    At the application level, Express also provides other methods to deal with 
+    template engines, other complex scenarios, etc. However, those are not part 
+    of the minimum functionality required to create a simple HTTP API.
+  */
 
   /**
    * Routes GET requests to the specified path with the specified callback
    * functions.
+   *
+   * If the path is a string, it will be used as the source for creating a
+   * regular expression. In either case, do not include anchors (`^` and `$`) as
+   * those are added automatically.
    *
    * @example
    * app.get("/", function (req, res) {
@@ -429,15 +347,17 @@ function createApplication() {
    * @param {(Middleware|ErrorHandler)[]} callbacks - The list of middleware
    */
   function get(path, ...callbacks) {
-    allRoutes.push({
-      method: "GET",
-      middleware: callbacks.flat(), // Flatten the list to support nested arrays
-      regexp: pathToRegExp(path),
+    callbacks.flat().forEach((callback) => {
+      allRoutes.push({
+        method: "GET",
+        middleware: callback,
+        regexp: pathToRegExp(path),
+      });
     });
   }
 
   /**
-   * Mounts the specified middleware function at the root so it is executed on
+   * Mounts the specified middleware functions at the root so it is executed on
    * every request.
    *
    * @example
@@ -446,21 +366,33 @@ function createApplication() {
    *   next();
    * });
    *
-   * @param {Middleware|ErrorHandler} callback - The middleware
+   * @param {(Middleware|ErrorHandler)[]} callbacks - The middleware
    */
-  function use(callback) {
-    allRoutes.push({
-      middleware: [callback, callNextRoute],
-      regexp: /^\//,
+  function use(...callbacks) {
+    callbacks.flat().forEach((callback) => {
+      allRoutes.push({
+        middleware: callback,
+        regexp: /^\//,
+      });
     });
   }
+
+  /*
+    After defining these functions to register routes, we define the main 
+    function that handles requests: `handleRequest`. This function just 
+    initiates the middleware chain and is the one that is called by the HTTP
+    server whenever a request is received.
+
+    The last function is `listen`. As in Express, it creates the above mentioned
+    HTTP server and starts listening on the specified port.
+  */
 
   /**
    * @param {http.IncomingMessage} req - The request
    * @param {http.ServerResponse} res - The response
    */
   function handleRequest(req, res) {
-    findRouteAndCallMiddleware(null, req, res, allRoutes.concat(defaultRoutes));
+    callMiddleware(null, req, res, allRoutes);
   }
 
   /**
@@ -470,6 +402,10 @@ function createApplication() {
    */
   const listen = (port) => http.createServer(handleRequest).listen(port);
 
+  /*
+    Don't forget to expose the functions defined above!
+  */
+
   return {
     get,
     listen,
@@ -478,7 +414,7 @@ function createApplication() {
 }
 
 /*
-  Before leaving, let's export the fabulous function we created above so 
+  And before leaving, let's export the fabulous function we created above so 
   everyone can try `not-express`.
 */
 
