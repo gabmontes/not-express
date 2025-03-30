@@ -263,7 +263,7 @@ function callMiddleware(err, req, res, middleware, nextRoutes) {
     if (!fn) {
       next("route");
     } else if (err && fn.length !== 4) {
-      next();
+      next(err);
     } else if (err) {
       /** @type {ErrorHandler} */ (fn)(err, req, res, next);
     } else {

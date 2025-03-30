@@ -236,3 +236,28 @@ test("Respond with a custom error code and message", function (t, done) {
     done,
   );
 });
+
+test("Skip over the remaining routes on error", function (t, done) {
+  const app = express();
+  app.get("/", function () {
+    throw new Error("Oops!");
+  });
+  app.use(function () {
+    throw new Error("Oops again!");
+  });
+  // eslint-disable-next-line no-unused-vars
+  app.use(function (err, req, res, next) {
+    res.writeHead(500);
+    res.end(err.message);
+  });
+  testRequest(
+    app,
+    "GET",
+    "/",
+    function (res, data) {
+      assert.strictEqual(res.statusCode, 500);
+      assert.strictEqual(data, "Oops!");
+    },
+    done,
+  );
+});
