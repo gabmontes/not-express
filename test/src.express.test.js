@@ -276,3 +276,23 @@ test("Handle a partial response sent", function (t, done) {
     done,
   );
 });
+
+test("Handle a call to next('route')", function (t, done) {
+  const app = express();
+  app.get("/", function (req, res, next) {
+    next("route");
+  });
+  app.get("/", function (req, res) {
+    res.end("Hello World!");
+  });
+  testRequest(
+    app,
+    "GET",
+    "/",
+    function (res, data) {
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(data, "Hello World!");
+    },
+    done,
+  );
+});

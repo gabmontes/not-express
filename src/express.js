@@ -48,7 +48,7 @@ const http = require("http");
  * @returns {void}
  *
  * @callback NextFunction
- * @param {Error|null} [err] - The error
+ * @param {Error|'route'|null} [err] - The error
  * @returns {void}
  */
 
@@ -137,6 +137,7 @@ function finalHandler(err, req, res) {
 
 /**
  * @typedef {Object} Route
+ * @property {number} [id] - The route identifier
  * @property {string} [method] - The HTTP method - will match any if not defined
  * @property {Middleware|ErrorHandler} middleware - The list of middleware
  * @property {RegExp} regexp - The regular expression to match the route's path
@@ -181,6 +182,13 @@ function callMiddleware(err, req, res, routes) {
   }
 
   /*
+    Given we know now we have routes left, Let's extract the properties of the 
+    first one.
+  */
+
+  const { id, method, middleware, regexp } = routes[0];
+
+  /*
     But if we are lucky, we should have routes to try to process the request 
     through. In this case, the first step is to define the `next()` function. 
     This function is created dynamically during each iteration.
@@ -198,15 +206,16 @@ function callMiddleware(err, req, res, routes) {
    * @type {NextFunction}
    */
   function next(err) {
-    callMiddleware(err || null, req, res, routes.slice(1));
+    const remainingRoutes = routes.slice(1);
+    if (!err) {
+      callMiddleware(null, req, res, remainingRoutes);
+    } else if (err === "route") {
+      const routesInNextStack = routes.filter((r) => r.id !== id);
+      callMiddleware(null, req, res, routesInNextStack);
+    } else {
+      callMiddleware(err, req, res, remainingRoutes);
+    }
   }
-
-  /*
-    And to move forward with some additional checks, let's extract the 
-    properties of the first route we are going to try with.
-  */
-
-  const { method, middleware, regexp } = routes[0];
 
   /*
     The first check is to verify the route method matches the request method. If 
@@ -311,6 +320,9 @@ function callMiddleware(err, req, res, routes) {
  * @returns {Object} A not-express application object
  */
 function createApplication() {
+  /**
+   * @type {Route[]} allRoutes - The list of user-defined routes
+   */
   const allRoutes = [];
 
   /*
@@ -349,6 +361,7 @@ function createApplication() {
   function get(path, ...callbacks) {
     callbacks.flat().forEach((callback) => {
       allRoutes.push({
+        id,
         method: "GET",
         middleware: callback,
         regexp: pathToRegExp(path),
