@@ -342,6 +342,8 @@ function createApplication() {
     of the minimum functionality required to create a simple HTTP API.
   */
 
+  const app = {};
+
   /**
    * Routes GET requests to the specified path with the specified callback
    * functions.
@@ -358,8 +360,9 @@ function createApplication() {
    * @param {string|RegExp} path - The route path
    * @param {(Middleware|ErrorHandler)[]} callbacks - The list of middleware
    */
-  function get(path, ...callbacks) {
-    callbacks.flat().forEach((callback) => {
+  app.get = function (path, ...callbacks) {
+    const id = allRoutes.length;
+    callbacks.flat().forEach(function (callback) {
       allRoutes.push({
         id,
         method: "GET",
@@ -367,7 +370,7 @@ function createApplication() {
         regexp: pathToRegExp(path),
       });
     });
-  }
+  };
 
   /**
    * Mounts the specified middleware functions at the root so it is executed on
@@ -381,14 +384,14 @@ function createApplication() {
    *
    * @param {(Middleware|ErrorHandler)[]} callbacks - The middleware
    */
-  function use(...callbacks) {
-    callbacks.flat().forEach((callback) => {
+  app.use = function (...callbacks) {
+    callbacks.flat().forEach(function (callback) {
       allRoutes.push({
         middleware: callback,
         regexp: /^\//,
       });
     });
-  }
+  };
 
   /*
     After defining these functions to register routes, we define the main 
@@ -413,17 +416,13 @@ function createApplication() {
    *
    * @param {number} [port] - The port to listen on.
    */
-  const listen = (port) => http.createServer(handleRequest).listen(port);
+  app.listen = (port) => http.createServer(handleRequest).listen(port);
 
   /*
     Don't forget to expose the functions defined above!
   */
 
-  return {
-    get,
-    listen,
-    use,
-  };
+  return app;
 }
 
 /*
