@@ -10,13 +10,13 @@ Working on `not-express` has been a fun and educational experience that deepened
 
 ## Highlights
 
-- **No Dependencies**: Built entirely using Node.js's built-in `http` module.
-- **Lightweight**: Less than 100 lines of code.
-- **Express-Like API**: Familiar `get`, `use`, and `listen` methods.
-- **Middleware Support**: Handles middleware and error-handling functions.
-- **Static and Regex Routes**: Supports routes defined as strings or regular expressions.
-- **Default Error Handling**: Includes 404 and 500 error handlers.
-- **Simple CORS Middleware**: Optional lightweight CORS support.
+- **No Dependencies**: Built entirely with no dependencies other than Node.js's built-in `http` module.
+- **Lightweight**: Less than 100 lines of code (without counting the comments).
+- **Connect/Express-Like API**: Familiar `get`, `use`, and `listen` methods.
+- **Static and Dynamic Routes**: Supports routes defined using strings or regular expressions with capture groups for path parameters.
+- **Middleware Support**: Handles requests through middleware and error-handling functions, transferring control with `next()`.
+- **Default Error Handling**: Automatically responds with 404 and 500 errors if calls or errors were not handled.
+- **Simple CORS Middleware**: Optional lightweight (and very limited) CORS support.
 
 ## Installation and Usage
 
@@ -38,5 +38,3 @@ app.get("/", function (req, res) {
 
 app.listen(3000);
 ```
-
-For details on what is supported and what is not, refer to the [express.js](./src/express.js) file.
